@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Rose</title>
+    <title>For You</title>
     <!-- Modern Elegant Font -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -103,7 +103,7 @@
             display: block;
         }
 
-        /* Loading Indicator for Model */
+        /* Loading Indicator */
         #loader-text {
             position: absolute;
             top: 50%;
@@ -176,12 +176,20 @@
             bloomStrength: 1.5,
             bloomRadius: 0.4,
             bloomThreshold: 0.2,
+            windStrength: 0.1,
+            windSpeed: 2.0
         };
 
         let scene, camera, renderer, composer, controls;
-        let modelGroup, stars;
+        let modelGroup, stars, starMaterial;
         let time = 0;
         let audioContext, mainGainNode;
+        
+        // --- GYROSCOPE & MOUSE VARIABLES ---
+        const mouse = new THREE.Vector2(0, 0);
+        const targetRotation = { x: 0, y: 0 };
+        const currentRotation = { x: 0, y: 0 };
+        const raycaster = new THREE.Raycaster();
 
         // --- AUDIO ENGINE ---
         function initAudio() {
@@ -251,12 +259,12 @@
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 1, 12); 
 
-            // 3. Renderer (High Performance & Brightness)
+            // 3. Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.8; // INCREASED EXPOSURE FOR BRIGHTNESS
+            renderer.toneMappingExposure = 1.8;
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
@@ -281,31 +289,21 @@
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            // 6. Lights (SUPER BRIGHT SETUP)
-            
-            // A. Base Ambient (No more dark shadows)
+            // 6. Lights
             const baseAmbient = new THREE.AmbientLight(0xffffff, 1.0); 
             scene.add(baseAmbient);
-
-            // B. Hemisphere (Natural fill)
             const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x0f0e0d, 2.0); 
             scene.add(hemiLight);
-
-            // C. Main Sun
             const sunLight = new THREE.DirectionalLight(0xffeebb, 5.0); 
             sunLight.position.set(5, 10, 7);
             sunLight.castShadow = true;
             sunLight.shadow.bias = -0.0001;
             scene.add(sunLight);
-
-            // D. Front Spotlight (Face of the rose)
             const frontSpot = new THREE.SpotLight(0xffddcc, 15.0);
             frontSpot.position.set(0, 5, 10);
             frontSpot.lookAt(0, 0, 0);
             frontSpot.penumbra = 0.5;
             scene.add(frontSpot);
-
-            // E. Back Rim Light (Separation)
             const rimLight = new THREE.SpotLight(0x88ccff, 10.0);
             rimLight.position.set(-5, 5, -8);
             rimLight.lookAt(0,0,0);
@@ -316,43 +314,111 @@
             loadLocalModel();
             initDragAndDrop();
 
-            // 8. Resize
+            // 8. Interaction Events
             window.addEventListener('resize', onWindowResize);
+            document.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('deviceorientation', onDeviceOrientation);
+            
             document.getElementById('open-btn').addEventListener('click', startExperience);
             
             animate();
         }
 
+        // --- INPUT HANDLING ---
+        function onMouseMove(event) {
+            // Normalize mouse position for Raycaster & Parallax
+            // Range: -1 to +1
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Desktop Parallax Target
+            targetRotation.x = mouse.y * 0.1; // Look up/down
+            targetRotation.y = mouse.x * 0.1; // Look left/right
+        }
+
+        function onDeviceOrientation(event) {
+            // Mobile Gyroscope Parallax Target
+            // beta is front/back tilt (-180 to 180)
+            // gamma is left/right tilt (-90 to 90)
+            
+            // Limit range to prevent extreme spinning
+            const tiltX = Math.min(Math.max(event.beta, -45), 45); 
+            const tiltY = Math.min(Math.max(event.gamma, -45), 45);
+
+            // Convert to small rotation values
+            // We subtract a baseline (approx 45deg viewing angle) or just use raw delta
+            targetRotation.x = (tiltX - 45) * 0.005; 
+            targetRotation.y = tiltY * 0.005;
+        }
+
+        // --- INTERACTIVE PARTICLES ---
         function createCosmicStars() {
+            const starCount = 3000;
             const starGeo = new THREE.BufferGeometry();
-            const starCount = 2000;
             const posArray = new Float32Array(starCount * 3);
+            
             for(let i=0; i<starCount * 3; i++) {
                 posArray[i] = (Math.random() - 0.5) * 60; 
             }
             starGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-            const starMat = new THREE.PointsMaterial({
-                size: 0.05, color: 0xffffff, transparent: true, opacity: 0.8,
+
+            starMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uMouse: { value: new THREE.Vector3(0, 0, 0) },
+                    uColor: { value: new THREE.Color(0xffffff) }
+                },
+                vertexShader: `
+                    uniform float uTime;
+                    uniform vec3 uMouse;
+                    varying float vAlpha;
+                    
+                    void main() {
+                        vec3 pos = position;
+                        pos.y += sin(uTime * 0.5 + pos.x) * 0.2;
+                        
+                        // Particle Repulsion
+                        float d = distance(pos.xy, uMouse.xy);
+                        float force = max(0.0, 5.0 - d);
+                        vec3 dir = normalize(pos - vec3(uMouse.xy, pos.z));
+                        pos += dir * force * 0.5;
+
+                        vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                        gl_PointSize = (4.0 * (10.0 / -mvPosition.z));
+                        gl_Position = projectionMatrix * mvPosition;
+                        vAlpha = 0.5 + 0.5 * sin(uTime * 2.0 + pos.x * 10.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 uColor;
+                    varying float vAlpha;
+                    void main() {
+                        vec2 uv = gl_PointCoord - 0.5;
+                        float dist = length(uv);
+                        if (dist > 0.5) discard;
+                        gl_FragColor = vec4(uColor, vAlpha * 0.8);
+                    }
+                `,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
             });
-            stars = new THREE.Points(starGeo, starMat);
+            
+            stars = new THREE.Points(starGeo, starMaterial);
             scene.add(stars);
         }
 
-        // --- SHARED MODEL SETUP & CLEANUP ---
+        // --- WIND PHYSICS ---
         function setupModel(gltf) {
-            // 1. HIDE LOADING TEXT FORCEFULLY
             const loaderText = document.getElementById('loader-text');
             if (loaderText) {
-                loaderText.style.display = 'none'; // Force hide
+                loaderText.style.display = 'none';
                 loaderText.style.opacity = '0';
             }
 
-            // 2. Clear old model
             if (modelGroup) scene.remove(modelGroup);
-
             modelGroup = gltf.scene;
             
-            // 3. Center and Scale
             const box = new THREE.Box3().setFromObject(modelGroup);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
@@ -364,15 +430,44 @@
             const scaleFactor = 5 / maxDim;
             modelGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-            // 4. Apply Materials
             modelGroup.traverse((node) => {
-                if (node.isMesh) {
+                if (node.isMesh && node.material) {
                     node.castShadow = true;
                     node.receiveShadow = true;
-                    if(node.material) {
-                        node.material.envMapIntensity = 2.0; // Make reflections brighter
-                        node.material.side = THREE.DoubleSide; 
-                    }
+
+                    const oldMat = node.material;
+                    const newMat = new THREE.MeshPhysicalMaterial({
+                        map: oldMat.map,
+                        color: oldMat.color,
+                        normalMap: oldMat.normalMap,
+                        roughness: 0.6,
+                        metalness: 0.1,
+                        sheen: 1.0,
+                        sheenRoughness: 0.5,
+                        sheenColor: new THREE.Color(0xffaaaa),
+                        transmission: 0.1,
+                        thickness: 1.5,
+                        side: THREE.DoubleSide
+                    });
+
+                    newMat.onBeforeCompile = (shader) => {
+                        shader.uniforms.uTime = { value: 0 };
+                        node.userData.shader = shader;
+                        shader.vertexShader = `uniform float uTime;` + shader.vertexShader;
+                        shader.vertexShader = shader.vertexShader.replace(
+                            '#include <begin_vertex>',
+                            `
+                            vec3 transformed = vec3( position );
+                            float heightFactor = max(0.0, transformed.y + 2.0);
+                            float wind = sin(uTime * 2.0 + transformed.x + transformed.y) * 0.05 * heightFactor;
+                            float windZ = cos(uTime * 1.5 + transformed.x) * 0.03 * heightFactor;
+                            transformed.x += wind;
+                            transformed.z += windZ;
+                            `
+                        );
+                    };
+
+                    node.material = newMat;
                 }
             });
 
@@ -385,16 +480,14 @@
 
             loader.load(
                 config.modelName, 
-                (gltf) => {
-                    setupModel(gltf);
-                },
+                (gltf) => { setupModel(gltf); },
                 (xhr) => {
                     if(loadingText.style.opacity == 1) {
                         loadingText.innerText = `Loading... ${(xhr.loaded / xhr.total * 100).toFixed(0)}%`;
                     }
                 },
                 (error) => {
-                    console.warn('CORS Blocked. Waiting for Drop.');
+                    console.warn('CORS Blocked.');
                     loadingText.innerText = "BROWSER SECURITY BLOCK\nBrowsers block loading local files automatically.\n\n👇 FIX: Drag & Drop your 'rose.glb' file here! 👇";
                     loadingText.style.color = "#ff8888";
                     loadingText.style.fontWeight = "bold";
@@ -430,18 +523,44 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            time += 0.001;
+            time += 0.005; 
             controls.update();
 
-            if(stars) {
-                stars.rotation.y = time * 0.5;
-                stars.rotation.x = time * 0.2;
+            // 1. Update Particle Mouse Interaction
+            if (starMaterial) {
+                starMaterial.uniforms.uTime.value = time;
+                raycaster.setFromCamera(mouse, camera);
+                const plane = new THREE.Plane(new THREE.Vector3(0,0,1), 0);
+                const target = new THREE.Vector3();
+                raycaster.ray.intersectPlane(plane, target);
+                if (target) starMaterial.uniforms.uMouse.value.set(target.x, target.y, target.z);
             }
 
             if(modelGroup) {
-                // Lower position slightly (-1.2)
-                modelGroup.position.y = (Math.sin(time * 2) * 0.1) - 1.2;
-                modelGroup.rotation.y += 0.002;
+                // 2. Apply Wind Shader Uniforms
+                modelGroup.traverse((node) => {
+                    if (node.isMesh && node.userData.shader) {
+                        node.userData.shader.uniforms.uTime.value = time;
+                    }
+                });
+
+                // 3. HOLOGRAM EFFECT (Gyroscope/Mouse Parallax)
+                // Smoothly interpolate current rotation to target rotation
+                currentRotation.x += (targetRotation.x - currentRotation.x) * 0.05;
+                currentRotation.y += (targetRotation.y - currentRotation.y) * 0.05;
+
+                // Apply rotations on top of base animation
+                // Base float: sin wave
+                modelGroup.position.y = (Math.sin(time * 1.0) * 0.1) - 1.2;
+                
+                // Base spin + Parallax Offset
+                // Note: We use rotation.x/z for tilt, y for spin
+                modelGroup.rotation.y += 0.002; 
+                
+                // Apply the Hologram tilt to the group container or scene rotation
+                // Actually, tilting the model X and Z axes works best for "Hologram" feel
+                modelGroup.rotation.x = currentRotation.x; 
+                modelGroup.rotation.z = currentRotation.y; 
             }
 
             composer.render();
@@ -452,6 +571,17 @@
             document.getElementById('loader-text').style.opacity = 1;
             controls.addEventListener('start', () => { controls.autoRotate = false; });
             initAudio();
+
+            // Request iOS Gyro Permission
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(response => {
+                        if (response == 'granted') {
+                            window.addEventListener('deviceorientation', onDeviceOrientation);
+                        }
+                    })
+                    .catch(console.error);
+            }
         }
 
         function onWindowResize() {
