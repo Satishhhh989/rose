@@ -181,7 +181,7 @@
         };
 
         let scene, camera, renderer, composer, controls;
-        let modelGroup, stars, starMaterial;
+        let contentWrapper, stars, starMaterial; // Changed modelGroup to contentWrapper
         let time = 0;
         let audioContext, mainGainNode;
         
@@ -416,21 +416,35 @@
                 loaderText.style.opacity = '0';
             }
 
-            if (modelGroup) scene.remove(modelGroup);
-            modelGroup = gltf.scene;
+            // Clean up old wrapper
+            if (contentWrapper) scene.remove(contentWrapper);
             
-            const box = new THREE.Box3().setFromObject(modelGroup);
+            // Create a new Wrapper Group
+            contentWrapper = new THREE.Group();
+            scene.add(contentWrapper);
+
+            const rawModel = gltf.scene;
+            
+            // 1. Calculate Bounding Box of the raw model
+            const box = new THREE.Box3().setFromObject(rawModel);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
             
-            modelGroup.position.x += (modelGroup.position.x - center.x);
-            modelGroup.position.z += (modelGroup.position.z - center.z);
+            // 2. Center the raw model inside the wrapper
+            // We move the rawModel in the opposite direction of its center
+            // This ensures the visual center is at (0,0,0) of the wrapper
+            rawModel.position.sub(center);
             
+            // 3. Scale the raw model to fit a standard size (e.g., 5 units)
             const maxDim = Math.max(size.x, size.y, size.z);
-            const scaleFactor = 5 / maxDim;
-            modelGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
+            const scaleFactor = (maxDim > 0) ? (5 / maxDim) : 1;
+            rawModel.scale.multiplyScalar(scaleFactor);
 
-            modelGroup.traverse((node) => {
+            // Add normalized model to wrapper
+            contentWrapper.add(rawModel);
+
+            // 4. Apply Materials & Shaders
+            rawModel.traverse((node) => {
                 if (node.isMesh && node.material) {
                     node.castShadow = true;
                     node.receiveShadow = true;
@@ -470,8 +484,6 @@
                     node.material = newMat;
                 }
             });
-
-            scene.add(modelGroup);
         }
 
         function loadLocalModel() {
@@ -536,31 +548,26 @@
                 if (target) starMaterial.uniforms.uMouse.value.set(target.x, target.y, target.z);
             }
 
-            if(modelGroup) {
-                // 2. Apply Wind Shader Uniforms
-                modelGroup.traverse((node) => {
+            // 2. Animate Wrapper (Hologram + Float)
+            if(contentWrapper) {
+                // Apply Wind Shader Uniforms to children
+                contentWrapper.traverse((node) => {
                     if (node.isMesh && node.userData.shader) {
                         node.userData.shader.uniforms.uTime.value = time;
                     }
                 });
 
-                // 3. HOLOGRAM EFFECT (Gyroscope/Mouse Parallax)
-                // Smoothly interpolate current rotation to target rotation
+                // HOLOGRAM EFFECT
                 currentRotation.x += (targetRotation.x - currentRotation.x) * 0.05;
                 currentRotation.y += (targetRotation.y - currentRotation.y) * 0.05;
 
-                // Apply rotations on top of base animation
-                // Base float: sin wave
-                modelGroup.position.y = (Math.sin(time * 1.0) * 0.1) - 1.2;
+                // Base float: sin wave. We center at -1.2 vertically.
+                contentWrapper.position.y = (Math.sin(time * 1.0) * 0.1) - 1.2;
                 
-                // Base spin + Parallax Offset
-                // Note: We use rotation.x/z for tilt, y for spin
-                modelGroup.rotation.y += 0.002; 
-                
-                // Apply the Hologram tilt to the group container or scene rotation
-                // Actually, tilting the model X and Z axes works best for "Hologram" feel
-                modelGroup.rotation.x = currentRotation.x; 
-                modelGroup.rotation.z = currentRotation.y; 
+                // Rotation
+                contentWrapper.rotation.y += 0.002; 
+                contentWrapper.rotation.x = currentRotation.x; 
+                contentWrapper.rotation.z = currentRotation.y; 
             }
 
             composer.render();
