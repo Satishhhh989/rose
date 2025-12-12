@@ -185,10 +185,8 @@
         let time = 0;
         let audioContext, mainGainNode;
         
-        // --- GYROSCOPE & MOUSE VARIABLES ---
-        const mouse = new THREE.Vector2(0, 0);
-        const targetRotation = { x: 0, y: 0 };
-        const currentRotation = { x: 0, y: 0 };
+        // Track mouse for interactive particles
+        const mouse = new THREE.Vector2(-9999, -9999);
         const raycaster = new THREE.Raycaster();
 
         // --- AUDIO ENGINE ---
@@ -314,44 +312,21 @@
             loadLocalModel();
             initDragAndDrop();
 
-            // 8. Interaction Events
+            // 8. Interaction
             window.addEventListener('resize', onWindowResize);
             document.addEventListener('mousemove', onMouseMove);
-            window.addEventListener('deviceorientation', onDeviceOrientation);
-            
             document.getElementById('open-btn').addEventListener('click', startExperience);
             
             animate();
         }
 
-        // --- INPUT HANDLING ---
         function onMouseMove(event) {
-            // Normalize mouse position for Raycaster & Parallax
-            // Range: -1 to +1
+            // Normalize mouse position for Raycaster (-1 to +1)
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-            // Desktop Parallax Target
-            targetRotation.x = mouse.y * 0.1; // Look up/down
-            targetRotation.y = mouse.x * 0.1; // Look left/right
         }
 
-        function onDeviceOrientation(event) {
-            // Mobile Gyroscope Parallax Target
-            // beta is front/back tilt (-180 to 180)
-            // gamma is left/right tilt (-90 to 90)
-            
-            // Limit range to prevent extreme spinning
-            const tiltX = Math.min(Math.max(event.beta, -45), 45); 
-            const tiltY = Math.min(Math.max(event.gamma, -45), 45);
-
-            // Convert to small rotation values
-            // We subtract a baseline (approx 45deg viewing angle) or just use raw delta
-            targetRotation.x = (tiltX - 45) * 0.005; 
-            targetRotation.y = tiltY * 0.005;
-        }
-
-        // --- INTERACTIVE PARTICLES ---
+        // --- INTERACTIVE PARTICLES (GPU POWERED) ---
         function createCosmicStars() {
             const starCount = 3000;
             const starGeo = new THREE.BufferGeometry();
@@ -362,10 +337,11 @@
             }
             starGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
 
+            // Custom Shader Material for Mouse Repulsion
             starMaterial = new THREE.ShaderMaterial({
                 uniforms: {
                     uTime: { value: 0 },
-                    uMouse: { value: new THREE.Vector3(0, 0, 0) },
+                    uMouse: { value: new THREE.Vector3(0, 0, 0) }, // We'll map 2D mouse to 3D roughly
                     uColor: { value: new THREE.Color(0xffffff) }
                 },
                 vertexShader: `
@@ -375,27 +351,39 @@
                     
                     void main() {
                         vec3 pos = position;
+                        
+                        // Gentle Float
                         pos.y += sin(uTime * 0.5 + pos.x) * 0.2;
                         
-                        // Particle Repulsion
+                        // MOUSE INTERACTION (Repulsion)
+                        // Simple logic: if point is close to mouse ray (simplified as XY plane distance here)
+                        // we push it away. 
+                        
                         float d = distance(pos.xy, uMouse.xy);
-                        float force = max(0.0, 5.0 - d);
+                        float force = max(0.0, 5.0 - d); // 5.0 is radius of effect
+                        
+                        // Push away from mouse center
                         vec3 dir = normalize(pos - vec3(uMouse.xy, pos.z));
                         pos += dir * force * 0.5;
 
                         vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-                        gl_PointSize = (4.0 * (10.0 / -mvPosition.z));
+                        gl_PointSize = (4.0 * (10.0 / -mvPosition.z)); // Size attenuation
                         gl_Position = projectionMatrix * mvPosition;
+                        
+                        // Twinkle based on position and time
                         vAlpha = 0.5 + 0.5 * sin(uTime * 2.0 + pos.x * 10.0);
                     }
                 `,
                 fragmentShader: `
                     uniform vec3 uColor;
                     varying float vAlpha;
+                    
                     void main() {
+                        // Circular particle
                         vec2 uv = gl_PointCoord - 0.5;
                         float dist = length(uv);
                         if (dist > 0.5) discard;
+                        
                         gl_FragColor = vec4(uColor, vAlpha * 0.8);
                     }
                 `,
@@ -408,7 +396,7 @@
             scene.add(stars);
         }
 
-        // --- WIND PHYSICS ---
+        // --- WIND PHYSICS INJECTION ---
         function setupModel(gltf) {
             const loaderText = document.getElementById('loader-text');
             if (loaderText) {
@@ -419,6 +407,7 @@
             if (modelGroup) scene.remove(modelGroup);
             modelGroup = gltf.scene;
             
+            // Center Model
             const box = new THREE.Box3().setFromObject(modelGroup);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
@@ -430,39 +419,64 @@
             const scaleFactor = 5 / maxDim;
             modelGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
+            // UPGRADE MATERIALS: SSS & WIND
             modelGroup.traverse((node) => {
                 if (node.isMesh && node.material) {
                     node.castShadow = true;
                     node.receiveShadow = true;
 
+                    // 1. Upgrade to Physical Material for SSS (Subsurface Scattering look)
+                    // We preserve the old map (texture) and color.
                     const oldMat = node.material;
+                    
                     const newMat = new THREE.MeshPhysicalMaterial({
                         map: oldMat.map,
                         color: oldMat.color,
                         normalMap: oldMat.normalMap,
-                        roughness: 0.6,
+                        roughness: 0.6,          // Organic rough texture
                         metalness: 0.1,
-                        sheen: 1.0,
+                        
+                        // SSS & VELVET Features
+                        sheen: 1.0,              // Velvet sheen
                         sheenRoughness: 0.5,
-                        sheenColor: new THREE.Color(0xffaaaa),
-                        transmission: 0.1,
-                        thickness: 1.5,
+                        sheenColor: new THREE.Color(0xffaaaa), // Pinkish highlight
+                        
+                        transmission: 0.1,       // Slight light passing through
+                        thickness: 1.5,          // Volume simulation
                         side: THREE.DoubleSide
                     });
 
+                    // 2. Inject Wind Physics via onBeforeCompile
+                    // We modify the Vertex Shader before it is compiled
                     newMat.onBeforeCompile = (shader) => {
                         shader.uniforms.uTime = { value: 0 };
+                        
+                        // Store reference to uniforms so we can update them in animate()
                         node.userData.shader = shader;
-                        shader.vertexShader = `uniform float uTime;` + shader.vertexShader;
+
+                        // Add Uniform definition
+                        shader.vertexShader = `
+                            uniform float uTime;
+                        ` + shader.vertexShader;
+
+                        // Add Distortion Logic
+                        // We replace '#include <begin_vertex>' with our custom displacement
                         shader.vertexShader = shader.vertexShader.replace(
                             '#include <begin_vertex>',
                             `
                             vec3 transformed = vec3( position );
-                            float heightFactor = max(0.0, transformed.y + 2.0);
+                            
+                            // WIND PHYSICS
+                            // Simple height-based sine wave
+                            // We use position.y (height) to make top move more than bottom (stem)
+                            
+                            float heightFactor = max(0.0, transformed.y + 2.0); // Adjust +2.0 based on model base
                             float wind = sin(uTime * 2.0 + transformed.x + transformed.y) * 0.05 * heightFactor;
                             float windZ = cos(uTime * 1.5 + transformed.x) * 0.03 * heightFactor;
+                            
                             transformed.x += wind;
                             transformed.z += windZ;
+                            
                             `
                         );
                     };
@@ -523,44 +537,35 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            time += 0.005; 
+            time += 0.005; // Slightly faster for wind
             controls.update();
 
-            // 1. Update Particle Mouse Interaction
+            // Update Star Uniforms
             if (starMaterial) {
                 starMaterial.uniforms.uTime.value = time;
+                // Raycast to find mouse position in 3D world (roughly)
                 raycaster.setFromCamera(mouse, camera);
+                // Create a virtual plane at z=0 to catch mouse movement
                 const plane = new THREE.Plane(new THREE.Vector3(0,0,1), 0);
                 const target = new THREE.Vector3();
                 raycaster.ray.intersectPlane(plane, target);
-                if (target) starMaterial.uniforms.uMouse.value.set(target.x, target.y, target.z);
+                
+                if (target) {
+                    starMaterial.uniforms.uMouse.value.set(target.x, target.y, target.z);
+                }
             }
 
+            // Update Model Wind Uniforms
             if(modelGroup) {
-                // 2. Apply Wind Shader Uniforms
+                // Gentle floating (Physics)
+                modelGroup.position.y = (Math.sin(time * 1.0) * 0.1) - 1.2;
+                
+                // Update Wind Shader
                 modelGroup.traverse((node) => {
                     if (node.isMesh && node.userData.shader) {
                         node.userData.shader.uniforms.uTime.value = time;
                     }
                 });
-
-                // 3. HOLOGRAM EFFECT (Gyroscope/Mouse Parallax)
-                // Smoothly interpolate current rotation to target rotation
-                currentRotation.x += (targetRotation.x - currentRotation.x) * 0.05;
-                currentRotation.y += (targetRotation.y - currentRotation.y) * 0.05;
-
-                // Apply rotations on top of base animation
-                // Base float: sin wave
-                modelGroup.position.y = (Math.sin(time * 1.0) * 0.1) - 1.2;
-                
-                // Base spin + Parallax Offset
-                // Note: We use rotation.x/z for tilt, y for spin
-                modelGroup.rotation.y += 0.002; 
-                
-                // Apply the Hologram tilt to the group container or scene rotation
-                // Actually, tilting the model X and Z axes works best for "Hologram" feel
-                modelGroup.rotation.x = currentRotation.x; 
-                modelGroup.rotation.z = currentRotation.y; 
             }
 
             composer.render();
@@ -571,17 +576,6 @@
             document.getElementById('loader-text').style.opacity = 1;
             controls.addEventListener('start', () => { controls.autoRotate = false; });
             initAudio();
-
-            // Request iOS Gyro Permission
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(response => {
-                        if (response == 'granted') {
-                            window.addEventListener('deviceorientation', onDeviceOrientation);
-                        }
-                    })
-                    .catch(console.error);
-            }
         }
 
         function onWindowResize() {
