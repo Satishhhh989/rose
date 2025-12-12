@@ -103,7 +103,7 @@
             display: block;
         }
 
-        /* Loading Indicator */
+        /* Loading/Error Indicator */
         #loader-text {
             position: absolute;
             top: 50%;
@@ -118,10 +118,12 @@
             pointer-events: none;
             z-index: 15;
             text-align: center;
-            width: 80%;
-            background: rgba(0,0,0,0.4);
+            width: 90%;
+            max-width: 400px;
+            background: rgba(0,0,0,0.6);
             padding: 20px;
             border-radius: 10px;
+            backdrop-filter: blur(5px);
         }
 
         #sound-btn {
@@ -169,10 +171,11 @@
         import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
         import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
         // --- CONFIGURATION ---
         const config = {
-            modelName: 'rose.glb', 
+            modelName: 'rose.glb', // ENSURE FILENAME CASE MATCHES EXACTLY
             bloomStrength: 1.5,
             bloomRadius: 0.4,
             bloomThreshold: 0.2,
@@ -181,7 +184,7 @@
         };
 
         let scene, camera, renderer, composer, controls;
-        let contentWrapper, stars, starMaterial; // Changed modelGroup to contentWrapper
+        let contentWrapper, stars, starMaterial; 
         let time = 0;
         let audioContext, mainGainNode;
         
@@ -264,12 +267,16 @@
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.8;
+            renderer.toneMappingExposure = 1.5; // Balanced exposure
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
 
-            // 4. Controls
+            // 4. ENVIRONMENT MAP (Crucial for Physical Materials)
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+
+            // 5. Controls
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
@@ -279,7 +286,7 @@
             controls.minDistance = 3;
             controls.maxDistance = 25;
 
-            // 5. Post Processing
+            // 6. Post Processing
             const renderScene = new RenderPass(scene, camera);
             const bloomPass = new UnrealBloomPass(
                 new THREE.Vector2(window.innerWidth, window.innerHeight),
@@ -289,32 +296,28 @@
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            // 6. Lights
-            const baseAmbient = new THREE.AmbientLight(0xffffff, 1.0); 
+            // 7. Lights
+            const baseAmbient = new THREE.AmbientLight(0xffffff, 0.8); 
             scene.add(baseAmbient);
-            const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x0f0e0d, 2.0); 
-            scene.add(hemiLight);
-            const sunLight = new THREE.DirectionalLight(0xffeebb, 5.0); 
+            
+            const sunLight = new THREE.DirectionalLight(0xffeebb, 4.0); 
             sunLight.position.set(5, 10, 7);
             sunLight.castShadow = true;
             sunLight.shadow.bias = -0.0001;
             scene.add(sunLight);
-            const frontSpot = new THREE.SpotLight(0xffddcc, 15.0);
+            
+            const frontSpot = new THREE.SpotLight(0xffddcc, 10.0);
             frontSpot.position.set(0, 5, 10);
             frontSpot.lookAt(0, 0, 0);
             frontSpot.penumbra = 0.5;
             scene.add(frontSpot);
-            const rimLight = new THREE.SpotLight(0x88ccff, 10.0);
-            rimLight.position.set(-5, 5, -8);
-            rimLight.lookAt(0,0,0);
-            scene.add(rimLight);
 
-            // 7. Content
+            // 8. Content
             createCosmicStars();
             loadLocalModel();
             initDragAndDrop();
 
-            // 8. Interaction Events
+            // 9. Interaction Events
             window.addEventListener('resize', onWindowResize);
             document.addEventListener('mousemove', onMouseMove);
             window.addEventListener('deviceorientation', onDeviceOrientation);
@@ -326,27 +329,15 @@
 
         // --- INPUT HANDLING ---
         function onMouseMove(event) {
-            // Normalize mouse position for Raycaster & Parallax
-            // Range: -1 to +1
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-            // Desktop Parallax Target
-            targetRotation.x = mouse.y * 0.1; // Look up/down
-            targetRotation.y = mouse.x * 0.1; // Look left/right
+            targetRotation.x = mouse.y * 0.1;
+            targetRotation.y = mouse.x * 0.1;
         }
 
         function onDeviceOrientation(event) {
-            // Mobile Gyroscope Parallax Target
-            // beta is front/back tilt (-180 to 180)
-            // gamma is left/right tilt (-90 to 90)
-            
-            // Limit range to prevent extreme spinning
             const tiltX = Math.min(Math.max(event.beta, -45), 45); 
             const tiltY = Math.min(Math.max(event.gamma, -45), 45);
-
-            // Convert to small rotation values
-            // We subtract a baseline (approx 45deg viewing angle) or just use raw delta
             targetRotation.x = (tiltX - 45) * 0.005; 
             targetRotation.y = tiltY * 0.005;
         }
@@ -356,7 +347,6 @@
             const starCount = 3000;
             const starGeo = new THREE.BufferGeometry();
             const posArray = new Float32Array(starCount * 3);
-            
             for(let i=0; i<starCount * 3; i++) {
                 posArray[i] = (Math.random() - 0.5) * 60; 
             }
@@ -372,17 +362,13 @@
                     uniform float uTime;
                     uniform vec3 uMouse;
                     varying float vAlpha;
-                    
                     void main() {
                         vec3 pos = position;
                         pos.y += sin(uTime * 0.5 + pos.x) * 0.2;
-                        
-                        // Particle Repulsion
                         float d = distance(pos.xy, uMouse.xy);
                         float force = max(0.0, 5.0 - d);
                         vec3 dir = normalize(pos - vec3(uMouse.xy, pos.z));
                         pos += dir * force * 0.5;
-
                         vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
                         gl_PointSize = (4.0 * (10.0 / -mvPosition.z));
                         gl_Position = projectionMatrix * mvPosition;
@@ -403,7 +389,6 @@
                 depthWrite: false,
                 blending: THREE.AdditiveBlending
             });
-            
             stars = new THREE.Points(starGeo, starMaterial);
             scene.add(stars);
         }
@@ -416,34 +401,25 @@
                 loaderText.style.opacity = '0';
             }
 
-            // Clean up old wrapper
             if (contentWrapper) scene.remove(contentWrapper);
-            
-            // Create a new Wrapper Group
             contentWrapper = new THREE.Group();
             scene.add(contentWrapper);
 
             const rawModel = gltf.scene;
             
-            // 1. Calculate Bounding Box of the raw model
+            // Center and Scale
             const box = new THREE.Box3().setFromObject(rawModel);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
             
-            // 2. Center the raw model inside the wrapper
-            // We move the rawModel in the opposite direction of its center
-            // This ensures the visual center is at (0,0,0) of the wrapper
             rawModel.position.sub(center);
-            
-            // 3. Scale the raw model to fit a standard size (e.g., 5 units)
             const maxDim = Math.max(size.x, size.y, size.z);
             const scaleFactor = (maxDim > 0) ? (5 / maxDim) : 1;
             rawModel.scale.multiplyScalar(scaleFactor);
-
-            // Add normalized model to wrapper
+            
             contentWrapper.add(rawModel);
 
-            // 4. Apply Materials & Shaders
+            // Apply Materials & Shaders
             rawModel.traverse((node) => {
                 if (node.isMesh && node.material) {
                     node.castShadow = true;
@@ -459,9 +435,10 @@
                         sheen: 1.0,
                         sheenRoughness: 0.5,
                         sheenColor: new THREE.Color(0xffaaaa),
-                        transmission: 0.1,
+                        transmission: 0.1, // Adjusted for visibility
                         thickness: 1.5,
-                        side: THREE.DoubleSide
+                        side: THREE.DoubleSide,
+                        envMapIntensity: 1.5 // Ensure it reflects the new environment
                     });
 
                     newMat.onBeforeCompile = (shader) => {
@@ -499,8 +476,16 @@
                     }
                 },
                 (error) => {
-                    console.warn('CORS Blocked.');
-                    loadingText.innerText = "BROWSER SECURITY BLOCK\nBrowsers block loading local files automatically.\n\n👇 FIX: Drag & Drop your 'rose.glb' file here! 👇";
+                    console.error('Load Error:', error);
+                    let errorMsg = "ERROR LOADING MODEL";
+                    
+                    if (error.target && error.target.status === 404) {
+                        errorMsg = "FILE NOT FOUND (404)\nCheck filename case sensitivity!\n(Rose.glb vs rose.glb)";
+                    } else {
+                        errorMsg = "SECURITY BLOCK OR ERROR\nDrag & Drop 'rose.glb' here to fix.";
+                    }
+
+                    loadingText.innerText = errorMsg;
                     loadingText.style.color = "#ff8888";
                     loadingText.style.fontWeight = "bold";
                     loadingText.style.whiteSpace = "pre-line";
@@ -550,21 +535,16 @@
 
             // 2. Animate Wrapper (Hologram + Float)
             if(contentWrapper) {
-                // Apply Wind Shader Uniforms to children
                 contentWrapper.traverse((node) => {
                     if (node.isMesh && node.userData.shader) {
                         node.userData.shader.uniforms.uTime.value = time;
                     }
                 });
 
-                // HOLOGRAM EFFECT
                 currentRotation.x += (targetRotation.x - currentRotation.x) * 0.05;
                 currentRotation.y += (targetRotation.y - currentRotation.y) * 0.05;
 
-                // Base float: sin wave. We center at -1.2 vertically.
                 contentWrapper.position.y = (Math.sin(time * 1.0) * 0.1) - 1.2;
-                
-                // Rotation
                 contentWrapper.rotation.y += 0.002; 
                 contentWrapper.rotation.x = currentRotation.x; 
                 contentWrapper.rotation.z = currentRotation.y; 
@@ -579,7 +559,6 @@
             controls.addEventListener('start', () => { controls.autoRotate = false; });
             initAudio();
 
-            // Request iOS Gyro Permission
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission()
                     .then(response => {
