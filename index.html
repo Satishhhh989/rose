@@ -267,7 +267,7 @@
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.5; // Balanced exposure
+            renderer.toneMappingExposure = 1.2; // Balanced exposure
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
@@ -297,16 +297,16 @@
             composer.addPass(bloomPass);
 
             // 7. Lights
-            const baseAmbient = new THREE.AmbientLight(0xffffff, 0.8); 
+            const baseAmbient = new THREE.AmbientLight(0xffffff, 0.6); 
             scene.add(baseAmbient);
             
-            const sunLight = new THREE.DirectionalLight(0xffeebb, 4.0); 
+            const sunLight = new THREE.DirectionalLight(0xffeebb, 3.0); 
             sunLight.position.set(5, 10, 7);
             sunLight.castShadow = true;
             sunLight.shadow.bias = -0.0001;
             scene.add(sunLight);
             
-            const frontSpot = new THREE.SpotLight(0xffddcc, 10.0);
+            const frontSpot = new THREE.SpotLight(0xffddcc, 6.0);
             frontSpot.position.set(0, 5, 10);
             frontSpot.lookAt(0, 0, 0);
             frontSpot.penumbra = 0.5;
