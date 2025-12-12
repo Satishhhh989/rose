@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rose</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>For You</title>
     <!-- Modern Elegant Font -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,9 +15,10 @@
             overflow: hidden;
             background-color: #000;
             font-family: 'Playfair Display', serif;
+            touch-action: none;
         }
 
-        /* --- PHASE 1: THE LETTER (OVERLAY) --- */
+        /* --- UI OVERLAY --- */
         #overlay {
             position: absolute;
             top: 0;
@@ -29,7 +30,7 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            z-index: 10;
+            z-index: 20;
             transition: opacity 2s ease-in-out, visibility 2s;
         }
 
@@ -53,15 +54,15 @@
 
         @keyframes fadeIn { to { opacity: 1; } }
 
-        /* The Wax Seal Button */
+        /* WAX SEAL BUTTON */
         #open-btn {
             width: 100px;
             height: 100px;
-            background: radial-gradient(circle at 30% 30%, #d1001f, #8a0015);
+            background: radial-gradient(circle at 30% 30%, #ff0033, #8a0015);
             border-radius: 50%;
             border: 4px solid #57000e;
             box-shadow: 
-                0 0 20px rgba(255, 0, 50, 0.4),
+                0 0 30px rgba(255, 0, 50, 0.6),
                 inset 0 0 20px rgba(0,0,0,0.5);
             cursor: pointer;
             display: flex;
@@ -70,11 +71,12 @@
             transition: transform 0.3s ease;
             position: relative;
             animation: heartbeat 2s infinite ease-in-out;
-            z-index: 11;
+            -webkit-tap-highlight-color: transparent;
+            z-index: 21;
         }
 
         #open-btn::after {
-            content: '0';
+            content: '🌹';
             font-size: 2.5rem;
             filter: drop-shadow(0 2px 5px rgba(0,0,0,0.5));
         }
@@ -85,7 +87,7 @@
 
         @keyframes heartbeat {
             0% { transform: scale(1); box-shadow: 0 0 20px rgba(255, 0, 50, 0.4); }
-            50% { transform: scale(1.05); box-shadow: 0 0 35px rgba(255, 0, 50, 0.6); }
+            50% { transform: scale(1.05); box-shadow: 0 0 40px rgba(255, 0, 50, 0.8); }
             100% { transform: scale(1); box-shadow: 0 0 20px rgba(255, 0, 50, 0.4); }
         }
 
@@ -95,15 +97,47 @@
             pointer-events: none;
         }
 
-        /* --- CANVAS CONTAINER --- */
         #canvas-container {
             width: 100%;
             height: 100vh;
             display: block;
         }
+
+        /* Loading Indicator for Model */
+        #loader-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-family: sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            opacity: 0;
+            transition: opacity 0.5s;
+            pointer-events: none;
+            z-index: 15;
+            text-align: center;
+            width: 80%;
+        }
+
+        #sound-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 20px;
+            padding: 5px 15px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            opacity: 0;
+            transition: opacity 1s;
+            z-index: 25;
+            background: rgba(0,0,0,0.5);
+        }
     </style>
 
-    <!-- Import Map for Three.js and Addons -->
     <script type="importmap">
         {
             "imports": {
@@ -115,344 +149,271 @@
 </head>
 <body>
 
-    <!-- Phase 1 UI -->
     <div id="overlay">
-        <div class="message">A virtual gift </div>
+        <div class="message">A gift for you</div>
         <div id="open-btn"></div>
-        <div class="instructions">Tap to open</div>
+        <div class="instructions">Tap to reveal</div>
     </div>
 
-    <!-- Phase 2 Canvas -->
+    <div id="loader-text">Loading Model...</div>
     <div id="canvas-container"></div>
+    <div id="sound-btn">Sound On</div>
 
     <script type="module">
         import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
         import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-        import { ParametricGeometry } from 'three/addons/geometries/ParametricGeometry.js';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         // --- CONFIGURATION ---
         const config = {
-            petalColor: 0x88001b, // Deep velvet red
-            stemColor: 0x1a3300,  // Dark organic green
-            petalCount: 21,       // More petals for realism
-            bloomSpeed: 0.8,
-            bloomStrength: 1.2,
-            bloomRadius: 0.8
+            modelName: 'rose.glb', // Should match your file name
+            bloomStrength: 1.5,
+            bloomRadius: 0.4,
+            bloomThreshold: 0.2,
         };
 
-        // --- STATE MANAGEMENT ---
         let scene, camera, renderer, composer, controls;
-        let roseGroup;
-        let particles;
-        let isOpening = false;
+        let modelGroup, stars;
         let time = 0;
-        
+        let audioContext, mainGainNode;
+
+        // --- AUDIO ENGINE ---
+        function initAudio() {
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioContext = new AudioContext();
+                mainGainNode = audioContext.createGain();
+                mainGainNode.gain.value = 0;
+                mainGainNode.connect(audioContext.destination);
+
+                const osc1 = audioContext.createOscillator();
+                osc1.type = 'sine'; osc1.frequency.value = 110; 
+                const gain1 = audioContext.createGain(); gain1.gain.value = 0.3;
+                osc1.connect(gain1).connect(mainGainNode); osc1.start();
+
+                const osc2 = audioContext.createOscillator();
+                osc2.type = 'triangle'; osc2.frequency.value = 164.81; 
+                const gain2 = audioContext.createGain(); gain2.gain.value = 0.15;
+                osc2.connect(gain2).connect(mainGainNode); osc2.start();
+
+                mainGainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 4);
+                document.getElementById('sound-btn').style.opacity = 1;
+            } catch (e) { console.warn('Audio error', e); }
+        }
+
         // --- INIT ---
         function init() {
             const container = document.getElementById('canvas-container');
 
-            // 1. Scene Setup
+            // 1. Scene & Fog (Cosmic Dark)
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x050002, 0.03); // Lighter fog for better visibility
-            scene.background = new THREE.Color(0x050002);
+            scene.fog = new THREE.FogExp2(0x050010, 0.02); // Dark blueish fog
+            scene.background = new THREE.Color(0x020005); // Deep space black
 
-            // 2. Camera (Mobile Responsive)
+            // 2. Camera
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-            updateCameraPosition(); // Set initial position based on screen width
+            camera.position.set(0, 1, 12); // Slightly lowered camera angle
 
             // 3. Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio for performance
+            renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.toneMapping = THREE.ACESFilmicToneMapping; // Cinematic tone mapping
-            renderer.toneMappingExposure = 1.0;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
 
-            // 4. Orbit Controls (Interaction)
+            // 4. Controls
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.enablePan = false;
-            controls.minDistance = 5;
-            controls.maxDistance = 20;
-            controls.autoRotate = true; // Slowly rotate around the flower
+            controls.autoRotate = true;
             controls.autoRotateSpeed = 0.5;
+            // Enhanced Zoom Settings
+            controls.enableZoom = true;
+            controls.minDistance = 3;  // Allow getting quite close
+            controls.maxDistance = 25; // Don't let them fly too far away
 
-            // 5. Post-Processing (Bloom)
+            // 5. Post Processing (Ambient Glow)
             const renderScene = new RenderPass(scene, camera);
             const bloomPass = new UnrealBloomPass(
                 new THREE.Vector2(window.innerWidth, window.innerHeight),
-                config.bloomStrength,
-                config.bloomRadius,
-                0.85
+                config.bloomStrength, config.bloomRadius, config.bloomThreshold
             );
             composer = new EffectComposer(renderer);
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            // 6. Lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            // 6. Lights (Cosmic + Highlight)
+            const ambientLight = new THREE.AmbientLight(0x404080, 2.0); // Blueish ambient for space feel
             scene.add(ambientLight);
 
-            // Key Light (Spotlight)
-            const spotLight = new THREE.SpotLight(0xffeebb, 80);
-            spotLight.position.set(5, 10, 5);
-            spotLight.angle = Math.PI / 6;
-            spotLight.penumbra = 0.3;
-            spotLight.castShadow = true;
-            scene.add(spotLight);
+            const sunLight = new THREE.DirectionalLight(0xffeebb, 3.0); // Warm sun
+            sunLight.position.set(5, 10, 7);
+            sunLight.castShadow = true;
+            scene.add(sunLight);
 
-            // Back Light (Rim light)
-            const rimLight = new THREE.SpotLight(0xff5566, 50);
-            rimLight.position.set(-5, 5, -8);
-            rimLight.lookAt(0, 0, 0);
+            const rimLight = new THREE.SpotLight(0x88ccff, 10.0); // Cool rim light
+            rimLight.position.set(-5, 2, -5);
             scene.add(rimLight);
-            
-            // Fill Light (Greenish from bottom for leaves)
-            const fillLight = new THREE.PointLight(0x224422, 10);
-            fillLight.position.set(0, -5, 0);
-            scene.add(fillLight);
 
-            // 7. Create Objects
-            createRealisticRose();
-            createFireflies();
+            // 7. Content
+            createCosmicStars(); // The space effect
+            loadLocalModel();    // Try loading local file
+            initDragAndDrop();   // Fallback: Enable Drag & Drop
 
-            // 8. Event Listeners
+            // 8. Resize
             window.addEventListener('resize', onWindowResize);
             document.getElementById('open-btn').addEventListener('click', startExperience);
-
-            // Start Loop
+            
             animate();
         }
 
-        // --- REALISTIC ROSE GENERATION ---
-        function createRealisticRose() {
-            roseGroup = new THREE.Group();
+        // --- COSMIC BACKGROUND ---
+        function createCosmicStars() {
+            const starGeo = new THREE.BufferGeometry();
+            const starCount = 2000;
+            const posArray = new Float32Array(starCount * 3);
             
-            // --- Materials ---
-            // Petal: Velvet-like, soft highlights
-            const petalMaterial = new THREE.MeshStandardMaterial({
-                color: config.petalColor,
-                roughness: 0.5,
-                metalness: 0.0,
-                emissive: 0x220000,
-                emissiveIntensity: 0.2,
-                side: THREE.DoubleSide,
-                flatShading: false
-            });
-
-            // Stem/Leaves: Organic green
-            const stemMaterial = new THREE.MeshStandardMaterial({
-                color: config.stemColor,
-                roughness: 0.7,
-                metalness: 0.1,
-                side: THREE.DoubleSide
-            });
-
-            // --- 1. The Petals ---
-            // Better petal geometry using a cup-shaped parametric function
-            const petalGeo = new ParametricGeometry((u, v, target) => {
-                // u = 0..1 (angle/width), v = 0..1 (height)
-                const angle = (u - 0.5) * Math.PI; // -90 to 90
-                const t = v * Math.PI * 0.5; // 0 to 90
-
-                // Shape modifications
-                // x: Width. Tapers at bottom (v=0) and widens.
-                // y: Height. 
-                // z: Depth (Curve).
-                
-                // Add a "wavy" top edge
-                const wave = Math.cos(u * Math.PI * 4) * 0.05 * v;
-
-                const x = 1.6 * Math.sin(angle) * Math.sin(t) * (1 + v * 0.2); 
-                const y = 2.2 * (1 - Math.cos(t)) + wave;
-                const z = 0.8 * Math.cos(angle) * Math.sin(t*1.2); 
-
-                target.set(x, y, z);
-            }, 12, 12);
-
-            const goldenAngle = 137.5 * (Math.PI / 180);
-
-            for (let i = 0; i < config.petalCount; i++) {
-                const petal = new THREE.Mesh(petalGeo, petalMaterial);
-                
-                // Phyllotaxis Arrangement
-                const theta = i * goldenAngle;
-                const rNormalized = i / config.petalCount;
-                const radius = 0.1 + (rNormalized * 0.5); // Tighter center
-
-                // Position
-                petal.position.x = radius * Math.cos(theta);
-                petal.position.z = radius * Math.sin(theta);
-                petal.position.y = i * 0.08; // Stack upwards
-
-                // Rotation setup
-                // Y: Rotate around stem
-                petal.rotation.y = -theta + Math.PI / 2;
-                
-                // Initial State (Closed bud)
-                // Inner petals are almost vertical, outer ones slightly less
-                const initialTilt = Math.PI / 2.1; 
-                petal.rotation.x = initialTilt;
-                
-                // Scale starts small
-                petal.scale.set(0.1, 0.1, 0.1);
-
-                // Bloom Targets
-                // Inner petals stay tighter, outer petals flop open more
-                const targetTilt = 0.4 + (1 - rNormalized) * 0.3; // 0.4 rads is open
-                
-                petal.userData = {
-                    isPetal: true,
-                    delay: i * 0.08,
-                    targetScale: 1 + (rNormalized * 0.3), // Outer petals larger
-                    targetRotationX: targetTilt,
-                    initialRotationX: initialTilt
-                };
-                
-                petal.castShadow = true;
-                petal.receiveShadow = true;
-                roseGroup.add(petal);
+            for(let i=0; i<starCount * 3; i++) {
+                // Random position in a large sphere
+                posArray[i] = (Math.random() - 0.5) * 60; 
             }
-
-            // --- 2. The Sepals (Green bits under the flower) ---
-            const sepalGeo = new THREE.ConeGeometry(0.2, 1.5, 4);
-            sepalGeo.translate(0, 0.75, 0); // Pivot at bottom
-            for(let k=0; k<5; k++) {
-                const sepal = new THREE.Mesh(sepalGeo, stemMaterial);
-                sepal.position.y = -0.2;
-                sepal.rotation.y = (k / 5) * Math.PI * 2;
-                sepal.rotation.x = Math.PI / 2.5; // Angled out
-                roseGroup.add(sepal);
-            }
-
-            // --- 3. The Stem (Curved Tube) ---
-            const curve = new THREE.CatmullRomCurve3([
-                new THREE.Vector3(0, -0.2, 0),
-                new THREE.Vector3(0.2, -2, 0.1),
-                new THREE.Vector3(-0.3, -5, -0.2),
-                new THREE.Vector3(0, -8, 0)
-            ]);
             
-            const stemGeo = new THREE.TubeGeometry(curve, 20, 0.12, 8, false);
-            const stem = new THREE.Mesh(stemGeo, stemMaterial);
-            stem.castShadow = true;
-            roseGroup.add(stem);
-
-            // --- 4. Leaves ---
-            // Simple parametric leaf shape
-            const leafGeo = new ParametricGeometry((u, v, target) => {
-                const angle = (u - 0.5) * Math.PI;
-                const x = Math.sin(angle) * Math.sin(v * Math.PI) * 0.6; // Width
-                const y = v * 1.5; // Length
-                const z = Math.abs(x) * 0.3 - (v*0.2); // Curvature
-                target.set(x, y, z);
-            }, 8, 8);
-
-            // Add 2 leaves
-            const leafPositions = [0.3, 0.6]; // Along the stem path (approx)
-            leafPositions.forEach((t, idx) => {
-                const point = curve.getPoint(t);
-                const tangent = curve.getTangent(t);
-                
-                const leaf = new THREE.Mesh(leafGeo, stemMaterial);
-                leaf.position.copy(point);
-                
-                // Orient leaf
-                leaf.lookAt(point.clone().add(tangent)); // Align with stem
-                leaf.rotation.x += Math.PI / 2;
-                leaf.rotation.y += (idx % 2 === 0 ? 1 : -1) * 2; // Alternate sides
-                leaf.rotation.z = Math.PI / 4;
-
-                roseGroup.add(leaf);
-            });
-
-            scene.add(roseGroup);
-        }
-
-        // --- PARTICLES ---
-        function createFireflies() {
-            const particleCount = 150;
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(particleCount * 3);
-            const phases = new Float32Array(particleCount);
-
-            for (let i = 0; i < particleCount; i++) {
-                positions[i * 3] = (Math.random() - 0.5) * 20; 
-                positions[i * 3 + 1] = (Math.random() - 0.5) * 15 + 2; 
-                positions[i * 3 + 2] = (Math.random() - 0.5) * 20; 
-                phases[i] = Math.random() * Math.PI * 2;
-            }
-
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geometry.setAttribute('phase', new THREE.BufferAttribute(phases, 1));
-
-            const material = new THREE.PointsMaterial({
-                color: 0xffddee,
-                size: 0.12,
+            starGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+            
+            const starMat = new THREE.PointsMaterial({
+                size: 0.05,
+                color: 0xffffff,
                 transparent: true,
-                opacity: 0.6,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false
+                opacity: 0.8,
             });
-
-            particles = new THREE.Points(geometry, material);
-            scene.add(particles);
+            
+            stars = new THREE.Points(starGeo, starMat);
+            scene.add(stars);
         }
 
-        // --- ANIMATION LOOP ---
+        // --- LOAD LOCAL MODEL (With Fallback) ---
+        function loadLocalModel() {
+            const loader = new GLTFLoader();
+            const loadingText = document.getElementById('loader-text');
+
+            loader.load(
+                config.modelName, 
+                (gltf) => {
+                    setupModel(gltf);
+                    loadingText.style.opacity = 0; // Hide loader
+                },
+                (xhr) => {
+                    // Progress
+                    if(loadingText.style.opacity == 1) {
+                        loadingText.innerText = `Loading... ${(xhr.loaded / xhr.total * 100).toFixed(0)}%`;
+                    }
+                },
+                (error) => {
+                    // CORS ERROR HANDLING
+                    console.warn('Auto-load blocked by browser security (CORS).', error);
+                    loadingText.innerText = "SECURITY BLOCK DETECTED\nBrowsers block automatic local file loading.\n\n👇 FIX: Drag & Drop your 'rose.glb' file anywhere here! 👇";
+                    loadingText.style.color = "#ff8888";
+                    loadingText.style.fontWeight = "bold";
+                    loadingText.style.whiteSpace = "pre-line";
+                    loadingText.style.opacity = 1;
+                }
+            );
+        }
+
+        // --- DRAG & DROP HANDLER (The Fix) ---
+        function initDragAndDrop() {
+            window.addEventListener('dragover', (e) => {
+                e.preventDefault(); // Allow drop
+            });
+
+            window.addEventListener('drop', (e) => {
+                e.preventDefault();
+                
+                const loadingText = document.getElementById('loader-text');
+                const file = e.dataTransfer.files[0];
+                
+                if (file && (file.name.endsWith('.glb') || file.name.endsWith('.gltf'))) {
+                    loadingText.innerText = "Parsing dropped file...";
+                    loadingText.style.color = "white";
+                    
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        const contents = event.target.result;
+                        const loader = new GLTFLoader();
+                        loader.parse(contents, '', function(gltf) {
+                            setupModel(gltf);
+                            loadingText.style.opacity = 0;
+                        });
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    loadingText.innerText = "Please drop a .glb file!";
+                }
+            });
+        }
+
+        // --- SHARED MODEL SETUP ---
+        function setupModel(gltf) {
+            // Remove old model if exists
+            if (modelGroup) scene.remove(modelGroup);
+
+            modelGroup = gltf.scene;
+            
+            // Auto-center and Scale logic
+            const box = new THREE.Box3().setFromObject(modelGroup);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            
+            // Center it horizontally
+            modelGroup.position.x += (modelGroup.position.x - center.x);
+            modelGroup.position.z += (modelGroup.position.z - center.z);
+            // Don't auto-center Y here, we handle height in animation
+            
+            // Normalize scale to fit roughly in a 5 unit box
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scaleFactor = 5 / maxDim;
+            modelGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
+
+            // Shadows & Materials
+            modelGroup.traverse((node) => {
+                if (node.isMesh) {
+                    node.castShadow = true;
+                    node.receiveShadow = true;
+                    if(node.material) {
+                        node.material.envMapIntensity = 1.5;
+                        // Optional: Ensure side is double for petals
+                        node.material.side = THREE.DoubleSide; 
+                    }
+                }
+            });
+
+            scene.add(modelGroup);
+        }
+
+        // --- ANIMATION ---
         function animate() {
             requestAnimationFrame(animate);
-            time += 0.01;
-            
-            // Interaction update
+            time += 0.001;
+
             controls.update();
 
-            if (isOpening) {
-                // Subtle sway of the whole flower
-                roseGroup.rotation.z = Math.sin(time * 0.3) * 0.05;
-
-                roseGroup.children.forEach((child) => {
-                    if (child.userData.isPetal) {
-                        const speed = 0.02;
-                        
-                        // 1. Scale Up (Bloom)
-                        child.scale.lerp(new THREE.Vector3(
-                            child.userData.targetScale, 
-                            child.userData.targetScale, 
-                            child.userData.targetScale
-                        ), speed);
-
-                        // 2. Rotate Open (Unfold)
-                        // Interpolate current rotation X towards target
-                        const target = child.userData.targetRotationX;
-                        // Simple approach creates a smooth opening curve
-                        child.rotation.x += (target - child.rotation.x) * speed * 1.5;
-                    }
-                });
+            // Rotate stars slowly
+            if(stars) {
+                stars.rotation.y = time * 0.5;
+                stars.rotation.x = time * 0.2;
             }
 
-            // Firefly Motion
-            if (particles) {
-                const positions = particles.geometry.attributes.position.array;
-                const phases = particles.geometry.attributes.phase.array;
-                
-                for(let i = 0; i < positions.length / 3; i++) {
-                    const yIdx = i * 3 + 1;
-                    // Float up gently
-                    positions[yIdx] += 0.01; 
-                    // Wiggle
-                    positions[i * 3] += Math.cos(time + phases[i]) * 0.01;
-                    
-                    // Reset if too high
-                    if(positions[yIdx] > 10) positions[yIdx] = -5;
-                }
-                particles.geometry.attributes.position.needsUpdate = true;
+            // Gentle float for the model
+            // Offset y by -1.2 to position it "a bit low"
+            if(modelGroup) {
+                modelGroup.position.y = (Math.sin(time * 2) * 0.1) - 1.2;
+                modelGroup.rotation.y += 0.002;
             }
 
             composer.render();
@@ -460,19 +421,13 @@
 
         // --- INTERACTION ---
         function startExperience() {
-            isOpening = true;
-            const overlay = document.getElementById('overlay');
-            overlay.classList.add('hidden');
-            controls.autoRotate = true; // Start rotating when opened
-        }
+            document.getElementById('overlay').classList.add('hidden');
+            document.getElementById('loader-text').style.opacity = 1; // Show loading text now
+            
+            // Stop auto rotate when user takes control
+            controls.addEventListener('start', () => { controls.autoRotate = false; });
 
-        function updateCameraPosition() {
-            // Move camera back for smaller screens (mobiles)
-            if (window.innerWidth < 600) {
-                camera.position.set(0, 8, 18);
-            } else {
-                camera.position.set(0, 5, 12);
-            }
+            initAudio();
         }
 
         function onWindowResize() {
@@ -480,12 +435,9 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
             composer.setSize(window.innerWidth, window.innerHeight);
-            updateCameraPosition();
         }
 
-        // Init
         init();
-
     </script>
 </body>
 </html>
