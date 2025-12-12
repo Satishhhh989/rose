@@ -444,7 +444,16 @@
                     newMat.onBeforeCompile = (shader) => {
                         shader.uniforms.uTime = { value: 0 };
                         node.userData.shader = shader;
-                        shader.vertexShader = `uniform float uTime;` + shader.vertexShader;
+                        
+                        // FIX: Inject uniform into the <common> chunk to avoid syntax errors
+                        shader.vertexShader = shader.vertexShader.replace(
+                            '#include <common>',
+                            `
+                            #include <common>
+                            uniform float uTime;
+                            `
+                        );
+                        
                         shader.vertexShader = shader.vertexShader.replace(
                             '#include <begin_vertex>',
                             `
