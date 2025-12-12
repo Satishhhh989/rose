@@ -180,7 +180,7 @@
         let time = 0;
         let audioContext, mainGainNode;
 
-        // --- AUDIO ENGINE ---
+        // --- AUDIO ENGINE (Improved Ambient Pad) ---
         function initAudio() {
             try {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -189,17 +189,59 @@
                 mainGainNode.gain.value = 0;
                 mainGainNode.connect(audioContext.destination);
 
-                const osc1 = audioContext.createOscillator();
-                osc1.type = 'sine'; osc1.frequency.value = 110; 
-                const gain1 = audioContext.createGain(); gain1.gain.value = 0.3;
-                osc1.connect(gain1).connect(mainGainNode); osc1.start();
+                // Reverb/Delay Effect for Space
+                const delayNode = audioContext.createDelay();
+                delayNode.delayTime.value = 0.4;
+                const feedbackNode = audioContext.createGain();
+                feedbackNode.gain.value = 0.4;
+                const delayFilter = audioContext.createBiquadFilter();
+                delayFilter.type = 'lowpass';
+                delayFilter.frequency.value = 1000;
 
-                const osc2 = audioContext.createOscillator();
-                osc2.type = 'triangle'; osc2.frequency.value = 164.81; 
-                const gain2 = audioContext.createGain(); gain2.gain.value = 0.15;
-                osc2.connect(gain2).connect(mainGainNode); osc2.start();
+                delayNode.connect(feedbackNode);
+                feedbackNode.connect(delayFilter);
+                delayFilter.connect(delayNode);
+                delayNode.connect(mainGainNode);
 
-                mainGainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 4);
+                // Helper to create soft notes
+                const createNote = (freq, detune) => {
+                    const osc = audioContext.createOscillator();
+                    osc.type = 'triangle'; // Softer than sine/square
+                    osc.frequency.value = freq;
+                    if(detune) osc.detune.value = detune;
+
+                    const gain = audioContext.createGain();
+                    gain.gain.value = 0.1; // Low volume per note
+                    
+                    const filter = audioContext.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.value = 600; // Cut off harsh highs
+
+                    osc.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(mainGainNode);
+                    gain.connect(delayNode); // Send to delay
+
+                    osc.start();
+                    
+                    // Gentle LFO for movement
+                    const lfo = audioContext.createOscillator();
+                    lfo.frequency.value = 0.1 + Math.random() * 0.2;
+                    const lfoGain = audioContext.createGain();
+                    lfoGain.gain.value = 100; // Filter modulation depth
+                    lfo.connect(lfoGain).connect(filter.frequency);
+                    lfo.start();
+                };
+
+                // Play a C Major 7th Chord (Warm & Dreamy)
+                createNote(130.81, -5); // C3
+                createNote(164.81, 5);  // E3
+                createNote(196.00, 0);  // G3
+                createNote(246.94, 3);  // B3 (Major 7th)
+
+                // Fade In Master Volume
+                mainGainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 5);
+                
                 document.getElementById('sound-btn').style.opacity = 1;
             } catch (e) { console.warn('Audio error', e); }
         }
@@ -248,18 +290,30 @@
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            // 6. Lights (Cosmic + Highlight)
-            const ambientLight = new THREE.AmbientLight(0x404080, 2.0); // Blueish ambient for space feel
-            scene.add(ambientLight);
+            // 6. Lights (Greatly Improved for Visibility)
+            
+            // A. Hemisphere Light: Natural Global Illumination (Sky vs Ground)
+            // Soft blue from top, subtle warm from bottom
+            const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x0f0e0d, 2.0); 
+            scene.add(hemiLight);
 
-            const sunLight = new THREE.DirectionalLight(0xffeebb, 3.0); // Warm sun
+            // B. Main Directional Light (Sun): Boosted intensity
+            const sunLight = new THREE.DirectionalLight(0xffeebb, 4.0); 
             sunLight.position.set(5, 10, 7);
             sunLight.castShadow = true;
+            sunLight.shadow.bias = -0.0001; // Fix shadow artifacts
             scene.add(sunLight);
 
-            const rimLight = new THREE.SpotLight(0x88ccff, 10.0); // Cool rim light
-            rimLight.position.set(-5, 2, -5);
+            // C. Rim Light (Back): Cool highlight for edges
+            const rimLight = new THREE.SpotLight(0x88ccff, 8.0);
+            rimLight.position.set(-5, 5, -5);
+            rimLight.lookAt(0,0,0);
             scene.add(rimLight);
+
+            // D. Front Fill Light: Ensures the rose face is bright
+            const frontLight = new THREE.PointLight(0xffccaa, 5.0, 20);
+            frontLight.position.set(0, 1, 4); // Right in front
+            scene.add(frontLight);
 
             // 7. Content
             createCosmicStars(); // The space effect
