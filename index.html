@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>For You</title>
+    <title>Rose</title>
     <!-- Modern Elegant Font -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -119,6 +119,9 @@
             z-index: 15;
             text-align: center;
             width: 80%;
+            background: rgba(0,0,0,0.4);
+            padding: 20px;
+            border-radius: 10px;
         }
 
         #sound-btn {
@@ -169,7 +172,7 @@
 
         // --- CONFIGURATION ---
         const config = {
-            modelName: 'rose.glb', // Should match your file name
+            modelName: 'rose.glb', 
             bloomStrength: 1.5,
             bloomRadius: 0.4,
             bloomThreshold: 0.2,
@@ -180,7 +183,7 @@
         let time = 0;
         let audioContext, mainGainNode;
 
-        // --- AUDIO ENGINE (Improved Ambient Pad) ---
+        // --- AUDIO ENGINE ---
         function initAudio() {
             try {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -189,7 +192,6 @@
                 mainGainNode.gain.value = 0;
                 mainGainNode.connect(audioContext.destination);
 
-                // Reverb/Delay Effect for Space
                 const delayNode = audioContext.createDelay();
                 delayNode.delayTime.value = 0.4;
                 const feedbackNode = audioContext.createGain();
@@ -203,45 +205,35 @@
                 delayFilter.connect(delayNode);
                 delayNode.connect(mainGainNode);
 
-                // Helper to create soft notes
                 const createNote = (freq, detune) => {
                     const osc = audioContext.createOscillator();
-                    osc.type = 'triangle'; // Softer than sine/square
+                    osc.type = 'triangle';
                     osc.frequency.value = freq;
                     if(detune) osc.detune.value = detune;
-
                     const gain = audioContext.createGain();
-                    gain.gain.value = 0.1; // Low volume per note
-                    
+                    gain.gain.value = 0.1;
                     const filter = audioContext.createBiquadFilter();
                     filter.type = 'lowpass';
-                    filter.frequency.value = 600; // Cut off harsh highs
-
+                    filter.frequency.value = 600;
                     osc.connect(filter);
                     filter.connect(gain);
                     gain.connect(mainGainNode);
-                    gain.connect(delayNode); // Send to delay
-
+                    gain.connect(delayNode);
                     osc.start();
-                    
-                    // Gentle LFO for movement
                     const lfo = audioContext.createOscillator();
                     lfo.frequency.value = 0.1 + Math.random() * 0.2;
                     const lfoGain = audioContext.createGain();
-                    lfoGain.gain.value = 100; // Filter modulation depth
+                    lfoGain.gain.value = 100;
                     lfo.connect(lfoGain).connect(filter.frequency);
                     lfo.start();
                 };
 
-                // Play a C Major 7th Chord (Warm & Dreamy)
-                createNote(130.81, -5); // C3
-                createNote(164.81, 5);  // E3
-                createNote(196.00, 0);  // G3
-                createNote(246.94, 3);  // B3 (Major 7th)
+                createNote(130.81, -5); 
+                createNote(164.81, 5);  
+                createNote(196.00, 0);  
+                createNote(246.94, 3);  
 
-                // Fade In Master Volume
                 mainGainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 5);
-                
                 document.getElementById('sound-btn').style.opacity = 1;
             } catch (e) { console.warn('Audio error', e); }
         }
@@ -250,21 +242,21 @@
         function init() {
             const container = document.getElementById('canvas-container');
 
-            // 1. Scene & Fog (Cosmic Dark)
+            // 1. Scene
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x050010, 0.02); // Dark blueish fog
-            scene.background = new THREE.Color(0x020005); // Deep space black
+            scene.fog = new THREE.FogExp2(0x050010, 0.02); 
+            scene.background = new THREE.Color(0x020005); 
 
             // 2. Camera
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.set(0, 1, 12); // Slightly lowered camera angle
+            camera.position.set(0, 1, 12); 
 
-            // 3. Renderer
+            // 3. Renderer (High Performance & Brightness)
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.2;
+            renderer.toneMappingExposure = 1.8; // INCREASED EXPOSURE FOR BRIGHTNESS
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
@@ -275,12 +267,11 @@
             controls.dampingFactor = 0.05;
             controls.autoRotate = true;
             controls.autoRotateSpeed = 0.5;
-            // Enhanced Zoom Settings
             controls.enableZoom = true;
-            controls.minDistance = 3;  // Allow getting quite close
-            controls.maxDistance = 25; // Don't let them fly too far away
+            controls.minDistance = 3;
+            controls.maxDistance = 25;
 
-            // 5. Post Processing (Ambient Glow)
+            // 5. Post Processing
             const renderScene = new RenderPass(scene, camera);
             const bloomPass = new UnrealBloomPass(
                 new THREE.Vector2(window.innerWidth, window.innerHeight),
@@ -290,35 +281,40 @@
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            // 6. Lights (Greatly Improved for Visibility)
+            // 6. Lights (SUPER BRIGHT SETUP)
             
-            // A. Hemisphere Light: Natural Global Illumination (Sky vs Ground)
-            // Soft blue from top, subtle warm from bottom
+            // A. Base Ambient (No more dark shadows)
+            const baseAmbient = new THREE.AmbientLight(0xffffff, 1.0); 
+            scene.add(baseAmbient);
+
+            // B. Hemisphere (Natural fill)
             const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x0f0e0d, 2.0); 
             scene.add(hemiLight);
 
-            // B. Main Directional Light (Sun): Boosted intensity
-            const sunLight = new THREE.DirectionalLight(0xffeebb, 4.0); 
+            // C. Main Sun
+            const sunLight = new THREE.DirectionalLight(0xffeebb, 5.0); 
             sunLight.position.set(5, 10, 7);
             sunLight.castShadow = true;
-            sunLight.shadow.bias = -0.0001; // Fix shadow artifacts
+            sunLight.shadow.bias = -0.0001;
             scene.add(sunLight);
 
-            // C. Rim Light (Back): Cool highlight for edges
-            const rimLight = new THREE.SpotLight(0x88ccff, 8.0);
-            rimLight.position.set(-5, 5, -5);
+            // D. Front Spotlight (Face of the rose)
+            const frontSpot = new THREE.SpotLight(0xffddcc, 15.0);
+            frontSpot.position.set(0, 5, 10);
+            frontSpot.lookAt(0, 0, 0);
+            frontSpot.penumbra = 0.5;
+            scene.add(frontSpot);
+
+            // E. Back Rim Light (Separation)
+            const rimLight = new THREE.SpotLight(0x88ccff, 10.0);
+            rimLight.position.set(-5, 5, -8);
             rimLight.lookAt(0,0,0);
             scene.add(rimLight);
 
-            // D. Front Fill Light: Ensures the rose face is bright
-            const frontLight = new THREE.PointLight(0xffccaa, 5.0, 20);
-            frontLight.position.set(0, 1, 4); // Right in front
-            scene.add(frontLight);
-
             // 7. Content
-            createCosmicStars(); // The space effect
-            loadLocalModel();    // Try loading local file
-            initDragAndDrop();   // Fallback: Enable Drag & Drop
+            createCosmicStars();
+            loadLocalModel();
+            initDragAndDrop();
 
             // 8. Resize
             window.addEventListener('resize', onWindowResize);
@@ -327,121 +323,54 @@
             animate();
         }
 
-        // --- COSMIC BACKGROUND ---
         function createCosmicStars() {
             const starGeo = new THREE.BufferGeometry();
             const starCount = 2000;
             const posArray = new Float32Array(starCount * 3);
-            
             for(let i=0; i<starCount * 3; i++) {
-                // Random position in a large sphere
                 posArray[i] = (Math.random() - 0.5) * 60; 
             }
-            
             starGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-            
             const starMat = new THREE.PointsMaterial({
-                size: 0.05,
-                color: 0xffffff,
-                transparent: true,
-                opacity: 0.8,
+                size: 0.05, color: 0xffffff, transparent: true, opacity: 0.8,
             });
-            
             stars = new THREE.Points(starGeo, starMat);
             scene.add(stars);
         }
 
-        // --- LOAD LOCAL MODEL (With Fallback) ---
-        function loadLocalModel() {
-            const loader = new GLTFLoader();
-            const loadingText = document.getElementById('loader-text');
-
-            loader.load(
-                config.modelName, 
-                (gltf) => {
-                    setupModel(gltf);
-                    loadingText.style.opacity = 0; // Hide loader
-                },
-                (xhr) => {
-                    // Progress
-                    if(loadingText.style.opacity == 1) {
-                        loadingText.innerText = `Loading... ${(xhr.loaded / xhr.total * 100).toFixed(0)}%`;
-                    }
-                },
-                (error) => {
-                    // CORS ERROR HANDLING
-                    console.warn('Auto-load blocked by browser security (CORS).', error);
-                    loadingText.innerText = "SECURITY BLOCK DETECTED\nBrowsers block automatic local file loading.\n\n👇 FIX: Drag & Drop your 'rose.glb' file anywhere here! 👇";
-                    loadingText.style.color = "#ff8888";
-                    loadingText.style.fontWeight = "bold";
-                    loadingText.style.whiteSpace = "pre-line";
-                    loadingText.style.opacity = 1;
-                }
-            );
-        }
-
-        // --- DRAG & DROP HANDLER (The Fix) ---
-        function initDragAndDrop() {
-            window.addEventListener('dragover', (e) => {
-                e.preventDefault(); // Allow drop
-            });
-
-            window.addEventListener('drop', (e) => {
-                e.preventDefault();
-                
-                const loadingText = document.getElementById('loader-text');
-                const file = e.dataTransfer.files[0];
-                
-                if (file && (file.name.endsWith('.glb') || file.name.endsWith('.gltf'))) {
-                    loadingText.innerText = "Parsing dropped file...";
-                    loadingText.style.color = "white";
-                    
-                    const reader = new FileReader();
-                    reader.onload = function(event) {
-                        const contents = event.target.result;
-                        const loader = new GLTFLoader();
-                        loader.parse(contents, '', function(gltf) {
-                            setupModel(gltf);
-                            loadingText.style.opacity = 0;
-                        });
-                    };
-                    reader.readAsArrayBuffer(file);
-                } else {
-                    loadingText.innerText = "Please drop a .glb file!";
-                }
-            });
-        }
-
-        // --- SHARED MODEL SETUP ---
+        // --- SHARED MODEL SETUP & CLEANUP ---
         function setupModel(gltf) {
-            // Remove old model if exists
+            // 1. HIDE LOADING TEXT FORCEFULLY
+            const loaderText = document.getElementById('loader-text');
+            if (loaderText) {
+                loaderText.style.display = 'none'; // Force hide
+                loaderText.style.opacity = '0';
+            }
+
+            // 2. Clear old model
             if (modelGroup) scene.remove(modelGroup);
 
             modelGroup = gltf.scene;
             
-            // Auto-center and Scale logic
+            // 3. Center and Scale
             const box = new THREE.Box3().setFromObject(modelGroup);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
             
-            // Center it horizontally
             modelGroup.position.x += (modelGroup.position.x - center.x);
             modelGroup.position.z += (modelGroup.position.z - center.z);
-            // Don't auto-center Y here, we handle height in animation
             
-            // Normalize scale to fit roughly in a 5 unit box
             const maxDim = Math.max(size.x, size.y, size.z);
             const scaleFactor = 5 / maxDim;
             modelGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-            // Shadows & Materials
+            // 4. Apply Materials
             modelGroup.traverse((node) => {
                 if (node.isMesh) {
                     node.castShadow = true;
                     node.receiveShadow = true;
                     if(node.material) {
-                        node.material.envMapIntensity = 1.5;
-                        // Optional: Ensure side is double for petals
+                        node.material.envMapIntensity = 2.0; // Make reflections brighter
                         node.material.side = THREE.DoubleSide; 
                     }
                 }
@@ -450,22 +379,67 @@
             scene.add(modelGroup);
         }
 
-        // --- ANIMATION ---
+        function loadLocalModel() {
+            const loader = new GLTFLoader();
+            const loadingText = document.getElementById('loader-text');
+
+            loader.load(
+                config.modelName, 
+                (gltf) => {
+                    setupModel(gltf);
+                },
+                (xhr) => {
+                    if(loadingText.style.opacity == 1) {
+                        loadingText.innerText = `Loading... ${(xhr.loaded / xhr.total * 100).toFixed(0)}%`;
+                    }
+                },
+                (error) => {
+                    console.warn('CORS Blocked. Waiting for Drop.');
+                    loadingText.innerText = "BROWSER SECURITY BLOCK\nBrowsers block loading local files automatically.\n\n👇 FIX: Drag & Drop your 'rose.glb' file here! 👇";
+                    loadingText.style.color = "#ff8888";
+                    loadingText.style.fontWeight = "bold";
+                    loadingText.style.whiteSpace = "pre-line";
+                    loadingText.style.opacity = 1;
+                }
+            );
+        }
+
+        function initDragAndDrop() {
+            window.addEventListener('dragover', (e) => { e.preventDefault(); });
+            window.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const loadingText = document.getElementById('loader-text');
+                const file = e.dataTransfer.files[0];
+                
+                if (file && (file.name.endsWith('.glb') || file.name.endsWith('.gltf'))) {
+                    loadingText.innerText = "Parsing...";
+                    loadingText.style.color = "white";
+                    
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        const contents = event.target.result;
+                        const loader = new GLTFLoader();
+                        loader.parse(contents, '', function(gltf) {
+                            setupModel(gltf);
+                        });
+                    };
+                    reader.readAsArrayBuffer(file);
+                }
+            });
+        }
+
         function animate() {
             requestAnimationFrame(animate);
             time += 0.001;
-
             controls.update();
 
-            // Rotate stars slowly
             if(stars) {
                 stars.rotation.y = time * 0.5;
                 stars.rotation.x = time * 0.2;
             }
 
-            // Gentle float for the model
-            // Offset y by -1.2 to position it "a bit low"
             if(modelGroup) {
+                // Lower position slightly (-1.2)
                 modelGroup.position.y = (Math.sin(time * 2) * 0.1) - 1.2;
                 modelGroup.rotation.y += 0.002;
             }
@@ -473,14 +447,10 @@
             composer.render();
         }
 
-        // --- INTERACTION ---
         function startExperience() {
             document.getElementById('overlay').classList.add('hidden');
-            document.getElementById('loader-text').style.opacity = 1; // Show loading text now
-            
-            // Stop auto rotate when user takes control
+            document.getElementById('loader-text').style.opacity = 1;
             controls.addEventListener('start', () => { controls.autoRotate = false; });
-
             initAudio();
         }
 
